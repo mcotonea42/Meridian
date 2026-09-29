@@ -9,9 +9,11 @@
     "start": "next start",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "check": "pnpm typecheck && pnpm test"
+    "lint": "eslint .",
+    "check": "pnpm lint && pnpm typecheck && pnpm test"
   },
   "dependencies": {
+    "@cyccle/server": "file:vendor/cyccle-server-0.1.0.tgz",
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
@@ -22,8 +24,18 @@
     "@types/node": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "typescript": "latest",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "16.3.6",
+    "typescript": "^5.9.3",
     "vitest": "latest"
   },
-  "packageManager": "pnpm@10.17.1"
+  "packageManager": "pnpm@10.17.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "pnpm": {
+    "overrides": {
+      "@cyccle/contracts@0.1.0": "file:vendor/cyccle-contracts-0.1.0.tgz"
+    }
+  }
 }

@@ -1,5 +1,6 @@
 import { createDemoAccountAction, resetDemoAction } from "@/app/actions";
 import { loadBillingSummary } from "@/server/billing";
+import { reconcileLatestCancellation } from "@/server/cyccle";
 import { currentUserId } from "@/server/session";
 import { userRepository } from "@/server/users";
 
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function BillingPage() {
   const userId = await currentUserId();
   const user = userId ? await userRepository().findById(userId) : null;
+  if (user) await reconcileLatestCancellation(user);
   const billing = user ? await loadBillingSummary(user) : null;
 
   if (!user || !billing) {

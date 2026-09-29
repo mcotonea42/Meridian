@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { env } from "@/env";
 import { startBillingCancellation, BillingCancellationError } from "@/server/cyccle";
 import { currentUserId } from "@/server/session";
 
@@ -7,7 +8,12 @@ export const runtime = "nodejs";
 export async function POST() {
   try {
     const result = await startBillingCancellation(await currentUserId());
-    return NextResponse.redirect(result.url, { status: 303 });
+    const destination = result.kind === "hosted"
+      ? result.url
+      : new URL("/billing", env().MERIDIAN_BASE_URL);
+    const response = NextResponse.redirect(destination, { status: 303 });
+    response.headers.set("Cache-Control", "no-store");
+    return response;
   } catch (error) {
     if (error instanceof BillingCancellationError) {
       return NextResponse.json(

@@ -8,9 +8,11 @@ merchant:
 
 - provisions a Stripe Test customer and Meridian Pro subscription;
 - stores the Stripe references server-side in SQLite;
-- launches `POST /v1/cancel-sessions` from the Meridian backend only;
+- creates and retrieves cancellation sessions through `@cyccle/server` from the
+  Meridian backend only;
 - redirects the browser to Cyccle's hosted cancellation URL;
-- reloads Stripe on `/billing` to show the real subscription state.
+- reconciles one known pending Cyccle session on `/billing`, then reloads Stripe
+  to show the real subscription state.
 
 ## Cyccle Contract Confirmed From `cyccle-mono`
 
@@ -61,6 +63,20 @@ pnpm dev
 Fill `.env.local` with Stripe Test and Cyccle staging values. Do not use Stripe
 Live keys.
 
+## Local SDK dependency
+
+`@cyccle/server` and its `@cyccle/contracts` dependency are not published yet.
+This repository therefore resolves both packages from the real package tarballs
+in `vendor/`; it does not use a cross-repository `workspace:*` dependency. The
+tarballs are temporary integration artifacts and must be replaced with published
+semver dependencies before the normal package release/deployment workflow.
+
+Meridian owns the cancellation attempt and its idempotency key. Ambiguous create
+failures remain `pending` and replay the same key. Confirmed sessions become
+`created`; deterministic failures become `failed`. Only the Cyccle session ID,
+status, outcome, and safe error code are persisted. The hosted capability URL is
+used for the immediate `303` response only.
+
 ## Environment
 
 ```sh
@@ -83,9 +99,11 @@ DATABASE_URL=file:./data/meridian.db
 Cyccle decides the hosted flow return URL from the workspace hosted settings.
 Meridian does not send a `returnUrl` during cancellation session creation. For
 local testing, the Cyccle staging workspace must already be configured to return
-to a URL that can reach this app, such as a staging Meridian deployment or a
-tunnel. If the workspace returns to a staging URL, localhost will not receive the
-browser automatically.
+to Meridian's existing `/billing` page through a staging deployment or a tunnel.
+That page performs at most one retrieve for the latest locally pending Cyccle
+session, persists its status/outcome, and then renders the normal Stripe billing
+state. No dedicated return route or polling loop is used. If the workspace
+returns to a staging URL, localhost will not receive the browser automatically.
 
 ## Scripts
 
@@ -93,6 +111,7 @@ browser automatically.
 pnpm dev
 pnpm test
 pnpm typecheck
+pnpm lint
 pnpm build
 pnpm check
 ```
