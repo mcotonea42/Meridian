@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { migrateDatabase } from "@/server/db";
+import { resetEnvCacheForTests } from "@/env";
+import { database, migrateDatabase, resetDatabaseForTests } from "@/server/db";
 
 describe("cancellation attempt migrations", () => {
   it("creates a fresh database once and preserves it on the next startup", () => {
@@ -121,6 +122,60 @@ describe("cancellation attempt migrations", () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  it("retries capability erasure after a committed migration had a busy checkpoint", () => {
+    const directory = mkdtempSync(join(tmpdir(), "meridian-capability-resume-"));
+    const databasePath = join(directory, "legacy.db");
+    const walPath = `${databasePath}-wal`;
+    const token = `cl_${"R".repeat(43)}`;
+    const writer = legacyDatabase(databasePath, `https://cancel.example/start#${token}`);
+    const blocker = new DatabaseSync(databasePath);
+    let writerClosed = false;
+    let blockerTransaction = false;
+    let restarted: DatabaseSync | null = null;
+
+    try {
+      writer.prepare("pragma wal_checkpoint(truncate)").get();
+      blocker.exec("BEGIN");
+      blockerTransaction = true;
+      blocker.prepare("select id from cancellation_attempts").get();
+
+      expect(() => migrateDatabase(writer)).toThrow(
+        "SQLite WAL checkpoint remained busy after migration",
+      );
+      expect(writer.prepare("pragma user_version").get()).toMatchObject({ user_version: 1 });
+      const migratedRootPage = writer.prepare(
+        "select rootpage from sqlite_schema where type = 'table' and name = 'cancellation_attempts'",
+      ).get();
+      expect(readFileSync(databasePath).includes(Buffer.from(token))).toBe(true);
+
+      writer.close();
+      writerClosed = true;
+      configureDatabase(databasePath);
+      expect(() => database()).toThrow("SQLite WAL checkpoint remained busy after migration");
+      blocker.exec("ROLLBACK");
+      blockerTransaction = false;
+      expect(readFileSync(databasePath).includes(Buffer.from(token))).toBe(true);
+
+      restarted = database();
+
+      expect(restarted.prepare("pragma user_version").get()).toMatchObject({ user_version: 1 });
+      expect(restarted.prepare(
+        "select rootpage from sqlite_schema where type = 'table' and name = 'cancellation_attempts'",
+      ).get()).toEqual(migratedRootPage);
+      expect(readFileSync(databasePath).includes(Buffer.from(token))).toBe(false);
+      if (existsSync(walPath)) {
+        expect(readFileSync(walPath).includes(Buffer.from(token))).toBe(false);
+      }
+    } finally {
+      if (blockerTransaction) blocker.exec("ROLLBACK");
+      resetDatabaseForTests();
+      resetEnvCacheForTests();
+      if (!writerClosed) writer.close();
+      blocker.close();
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });
 
 function legacyDatabase(
@@ -164,4 +219,17 @@ function legacyDatabase(
     )
   `).run(hostedUrl);
   return connection;
+}
+
+function configureDatabase(databasePath: string): void {
+  process.env.STRIPE_SECRET_KEY = "sk_test_123";
+  process.env.STRIPE_PRO_PRICE_ID = "price_pro";
+  process.env.STRIPE_STARTER_PRICE_ID = "price_starter";
+  process.env.CYCCLE_API_BASE_URL = "https://api-staging.cyccle.co";
+  process.env.CYCCLE_API_KEY = "ck_test_secret";
+  process.env.MERIDIAN_SESSION_SECRET = "test-secret-that-is-long-enough-for-meridian";
+  process.env.MERIDIAN_BASE_URL = "http://localhost:3000";
+  process.env.DATABASE_URL = `file:${databasePath}`;
+  resetEnvCacheForTests();
+  resetDatabaseForTests();
 }

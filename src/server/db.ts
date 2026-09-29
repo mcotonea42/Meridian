@@ -30,15 +30,24 @@ export interface CancellationAttempt {
 let db: DatabaseSync | null = null;
 
 export function database(): DatabaseSync {
-  if (!db) {
-    const path = databasePath(env().DATABASE_URL);
-    mkdirSync(dirname(path), { recursive: true });
-    db = new DatabaseSync(path);
-    db.exec("PRAGMA journal_mode = WAL");
-    db.exec("PRAGMA foreign_keys = ON");
-    migrateDatabase(db);
+  if (db) return db;
+  const path = databasePath(env().DATABASE_URL);
+  mkdirSync(dirname(path), { recursive: true });
+  const connection = new DatabaseSync(path);
+  try {
+    connection.exec("PRAGMA journal_mode = WAL");
+    connection.exec("PRAGMA foreign_keys = ON");
+    migrateDatabase(connection);
+  } catch (error) {
+    try {
+      connection.close();
+    } catch {
+      // Preserve the initialization error that prevented a usable database.
+    }
+    throw error;
   }
-  return db;
+  db = connection;
+  return connection;
 }
 
 export function resetDatabaseForTests(nextDb: DatabaseSync | null = null): void {
@@ -58,14 +67,16 @@ function databasePath(databaseUrl: string): string {
 
 export function migrateDatabase(connection: DatabaseSync): void {
   connection.exec("PRAGMA secure_delete = ON");
-  const versionRow = connection.prepare("pragma user_version").get() as { user_version: number };
-  if (versionRow.user_version >= 1) return;
   const journalModeRow = connection.prepare("pragma journal_mode").get() as {
     journal_mode: string;
   };
+  const versionRow = connection.prepare("pragma user_version").get() as { user_version: number };
+  if (versionRow.user_version >= 1) {
+    checkpointWal(connection, journalModeRow.journal_mode);
+    return;
+  }
   const foreignKeysRow = connection.prepare("pragma foreign_keys").get() as { foreign_keys: number };
   connection.exec("PRAGMA foreign_keys = OFF");
-  let committed = false;
   try {
     connection.exec("BEGIN IMMEDIATE");
     connection.exec(`
@@ -85,7 +96,6 @@ export function migrateDatabase(connection: DatabaseSync): void {
     }
     connection.exec("PRAGMA user_version = 1");
     connection.exec("COMMIT");
-    committed = true;
   } catch (error) {
     try {
       connection.exec("ROLLBACK");
@@ -96,13 +106,16 @@ export function migrateDatabase(connection: DatabaseSync): void {
   } finally {
     if (foreignKeysRow.foreign_keys === 1) connection.exec("PRAGMA foreign_keys = ON");
   }
-  if (committed && journalModeRow.journal_mode.toLowerCase() === "wal") {
-    const checkpoint = connection.prepare("pragma wal_checkpoint(truncate)").get() as {
-      busy: number;
-    };
-    if (checkpoint.busy !== 0) {
-      throw new Error("SQLite WAL checkpoint remained busy after migration");
-    }
+  checkpointWal(connection, journalModeRow.journal_mode);
+}
+
+function checkpointWal(connection: DatabaseSync, journalMode: string): void {
+  if (journalMode.toLowerCase() !== "wal") return;
+  const checkpoint = connection.prepare("pragma wal_checkpoint(truncate)").get() as {
+    busy: number;
+  };
+  if (checkpoint.busy !== 0) {
+    throw new Error("SQLite WAL checkpoint remained busy after migration");
   }
 }
 
