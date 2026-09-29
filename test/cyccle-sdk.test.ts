@@ -129,7 +129,10 @@ describe("Cyccle SDK cancellation orchestration", () => {
     await expect(result).rejects.toMatchObject({ code, status: 409 });
     await expect(result).rejects.not.toMatchObject({ message: expect.stringContaining("upstream secret") });
     expect(cancellations.retrieve).not.toHaveBeenCalled();
-    expect(attempts.markFailed).toHaveBeenCalledWith("cat_existing", code);
+    expect(attempts.markFailedIfPendingWithoutSession).toHaveBeenCalledWith(
+      "cat_existing",
+      code,
+    );
   });
 
   it("retrieves a pending session once and persists its terminal outcome", async () => {
@@ -291,25 +294,28 @@ function userRepository(): UserRepository {
 }
 
 function attemptRepository(overrides: Partial<CancellationAttempt> = {}): CancellationAttemptRepository {
+  const attempt = () => ({
+    id: "cat_existing",
+    userId: "usr_demo",
+    subscriptionId: "sub_server",
+    idempotencyKey: "idem_persisted",
+    cyccleSessionId: null,
+    status: "pending" as const,
+    cyccleStatus: null,
+    cyccleOutcome: null,
+    errorCode: null,
+    createdAt: "2026-09-29T08:00:00.000Z",
+    updatedAt: "2026-09-29T08:00:00.000Z",
+    ...overrides,
+  });
   return {
-    getOrCreateReplayable: vi.fn(async () => ({
-      id: "cat_existing",
-      userId: "usr_demo",
-      subscriptionId: "sub_server",
-      idempotencyKey: "idem_persisted",
-      cyccleSessionId: null,
-      status: "pending" as const,
-      cyccleStatus: null,
-      cyccleOutcome: null,
-      errorCode: null,
-      createdAt: "2026-09-29T08:00:00.000Z",
-      updatedAt: "2026-09-29T08:00:00.000Z",
-      ...overrides,
-    })),
+    getOrCreateReplayable: vi.fn(async () => attempt()),
+    findById: vi.fn(async () => attempt()),
     findLatest: vi.fn(async () => null),
     markCreated: vi.fn(),
     recordError: vi.fn(),
     markFailed: vi.fn(),
+    markFailedIfPendingWithoutSession: vi.fn(async () => true),
     updateCyccleResource: vi.fn(),
   };
 }

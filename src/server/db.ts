@@ -57,10 +57,15 @@ function databasePath(databaseUrl: string): string {
 }
 
 export function migrateDatabase(connection: DatabaseSync): void {
+  connection.exec("PRAGMA secure_delete = ON");
   const versionRow = connection.prepare("pragma user_version").get() as { user_version: number };
   if (versionRow.user_version >= 1) return;
+  const journalModeRow = connection.prepare("pragma journal_mode").get() as {
+    journal_mode: string;
+  };
   const foreignKeysRow = connection.prepare("pragma foreign_keys").get() as { foreign_keys: number };
   connection.exec("PRAGMA foreign_keys = OFF");
+  let committed = false;
   try {
     connection.exec("BEGIN IMMEDIATE");
     connection.exec(`
@@ -80,6 +85,7 @@ export function migrateDatabase(connection: DatabaseSync): void {
     }
     connection.exec("PRAGMA user_version = 1");
     connection.exec("COMMIT");
+    committed = true;
   } catch (error) {
     try {
       connection.exec("ROLLBACK");
@@ -89,6 +95,14 @@ export function migrateDatabase(connection: DatabaseSync): void {
     throw error;
   } finally {
     if (foreignKeysRow.foreign_keys === 1) connection.exec("PRAGMA foreign_keys = ON");
+  }
+  if (committed && journalModeRow.journal_mode.toLowerCase() === "wal") {
+    const checkpoint = connection.prepare("pragma wal_checkpoint(truncate)").get() as {
+      busy: number;
+    };
+    if (checkpoint.busy !== 0) {
+      throw new Error("SQLite WAL checkpoint remained busy after migration");
+    }
   }
 }
 

@@ -28,7 +28,8 @@ export class BillingCancellationError extends Error {
       | "idempotency_conflict"
       | "idempotency_resource_claimed"
       | "idempotency_resource_expired"
-      | "cyccle_session_mismatch",
+      | "cyccle_session_mismatch"
+      | "cancellation_attempt_state_conflict",
     message: string,
     readonly status = 400,
   ) {
@@ -38,10 +39,12 @@ export class BillingCancellationError extends Error {
 
 export interface CancellationAttemptRepository {
   getOrCreateReplayable(userId: string, subscriptionId: string): Promise<CancellationAttempt>;
+  findById(id: string): Promise<CancellationAttempt | null>;
   findLatest(userId: string, subscriptionId: string): Promise<CancellationAttempt | null>;
   markCreated(id: string, sessionId: string): Promise<void>;
   recordError(id: string, errorCode: string): Promise<void>;
   markFailed(id: string, errorCode: string): Promise<void>;
+  markFailedIfPendingWithoutSession(id: string, errorCode: string): Promise<boolean>;
   updateCyccleResource(id: string, resource: MerchantCancellationResource): Promise<void>;
 }
 
@@ -77,6 +80,10 @@ export function cancellationAttemptRepository(
       `).run(id, userId, subscriptionId, idempotencyKey, timestamp, timestamp);
       return readAttempt(connection, id);
     },
+    async findById(id) {
+      const row = connection.prepare("select * from cancellation_attempts where id = ?").get(id);
+      return row ? rowToAttempt(row as Record<string, unknown>) : null;
+    },
     async findLatest(userId, subscriptionId) {
       const row = connection.prepare(`
         select * from cancellation_attempts
@@ -107,6 +114,14 @@ export function cancellationAttemptRepository(
         set status = 'failed', error_code = ?, updated_at = ?
         where id = ?
       `).run(errorCode, nowIso(), id);
+    },
+    async markFailedIfPendingWithoutSession(id, errorCode) {
+      const result = connection.prepare(`
+        update cancellation_attempts
+        set status = 'failed', error_code = ?, updated_at = ?
+        where id = ? and status = 'pending' and cyccle_session_id is null
+      `).run(errorCode, nowIso(), id);
+      return Number(result.changes) === 1;
     },
     async updateCyccleResource(id, resource) {
       connection.prepare(`
@@ -219,17 +234,29 @@ async function reconcileKnownIdempotencyResource(
   ) {
     return undefined;
   }
-  if (!attempt.cyccleSessionId) {
-    await deps.attempts.markFailed(attempt.id, error.code);
-    throw new BillingCancellationError(
+  let sessionId = attempt.cyccleSessionId;
+  if (!sessionId) {
+    const markedFailed = await deps.attempts.markFailedIfPendingWithoutSession(
+      attempt.id,
       error.code,
-      "Cyccle cannot replay this cancellation attempt without its session reference.",
-      409,
     );
+    if (markedFailed) throw unrecoverableIdempotencyResource(error.code);
+    const currentAttempt = await deps.attempts.findById(attempt.id);
+    if (currentAttempt?.status === "failed") {
+      throw unrecoverableIdempotencyResource(error.code);
+    }
+    if (!currentAttempt?.cyccleSessionId || currentAttempt.status !== "created") {
+      throw new BillingCancellationError(
+        "cancellation_attempt_state_conflict",
+        "The cancellation attempt changed to an incompatible state.",
+        409,
+      );
+    }
+    sessionId = currentAttempt.cyccleSessionId;
   }
   try {
-    const resource = await deps.cancellations.retrieve(attempt.cyccleSessionId);
-    if (resource.id !== attempt.cyccleSessionId) {
+    const resource = await deps.cancellations.retrieve(sessionId);
+    if (resource.id !== sessionId) {
       await deps.attempts.markFailed(attempt.id, "cyccle_session_mismatch");
       throw new BillingCancellationError(
         "cyccle_session_mismatch",
@@ -261,6 +288,16 @@ async function reconcileKnownIdempotencyResource(
       502,
     );
   }
+}
+
+function unrecoverableIdempotencyResource(
+  code: "idempotency_resource_claimed" | "idempotency_resource_expired",
+): BillingCancellationError {
+  return new BillingCancellationError(
+    code,
+    "Cyccle cannot replay this cancellation attempt without its session reference.",
+    409,
+  );
 }
 
 function deterministicFailure(error: unknown): {
