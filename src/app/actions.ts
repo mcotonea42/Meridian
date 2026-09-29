@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { env } from "@/env";
 import { createOrResetDemoAccount } from "@/server/provisioning";
 
 export async function createDemoAccountAction() {
@@ -9,8 +10,8 @@ export async function createDemoAccountAction() {
 }
 
 export async function resetDemoAction() {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("Reset demo is disabled in production.");
+  if (!env().MERIDIAN_DEMO_RESET_ENABLED) {
+    throw new Error("Reset demo is disabled.");
   }
   await createOrResetDemoAccount();
   redirect("/billing");

@@ -89,10 +89,13 @@ CYCCLE_API_KEY=
 
 MERIDIAN_SESSION_SECRET=
 MERIDIAN_BASE_URL=http://localhost:3000
+MERIDIAN_DEMO_RESET_ENABLED=false
 DATABASE_URL=file:./data/meridian.db
 ```
 
 `MERIDIAN_SESSION_SECRET` should be at least 32 characters.
+`MERIDIAN_DEMO_RESET_ENABLED` must be set to `true` to show and authorize the
+Reset demo action. It is disabled when omitted or set to `false`.
 
 ## Return URL Note
 

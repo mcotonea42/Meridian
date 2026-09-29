@@ -8,6 +8,9 @@ const EnvSchema = z.object({
   CYCCLE_API_KEY: z.string().min(1),
   MERIDIAN_SESSION_SECRET: z.string().min(32),
   MERIDIAN_BASE_URL: z.string().url(),
+  MERIDIAN_DEMO_RESET_ENABLED: z.enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   DATABASE_URL: z.string().default("file:./data/meridian.db"),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 });

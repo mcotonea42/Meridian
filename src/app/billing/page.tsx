@@ -1,4 +1,5 @@
 import { createDemoAccountAction, resetDemoAction } from "@/app/actions";
+import { env } from "@/env";
 import { loadBillingSummary } from "@/server/billing";
 import { reconcileLatestCancellation } from "@/server/cyccle";
 import { currentUserId } from "@/server/session";
@@ -29,6 +30,7 @@ export default async function BillingPage() {
       </main>
     );
   }
+  const demoResetEnabled = env().MERIDIAN_DEMO_RESET_ENABLED;
 
   return (
     <main className="shell">
@@ -37,9 +39,11 @@ export default async function BillingPage() {
           <div className="brand">Meridian</div>
           <p className="kicker">{user.email}</p>
         </div>
-        <form action={resetDemoAction}>
-          <button className="secondary" type="submit">Reset demo</button>
-        </form>
+        {demoResetEnabled ? (
+          <form action={resetDemoAction}>
+            <button className="secondary" type="submit">Reset demo</button>
+          </form>
+        ) : null}
       </header>
       <section className="panel stack">
         <p className="kicker">Billing</p>
