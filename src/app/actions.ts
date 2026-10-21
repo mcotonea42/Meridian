@@ -3,10 +3,17 @@
 import { redirect } from "next/navigation";
 import { env } from "@/env";
 import { createOrResetDemoAccount } from "@/server/provisioning";
+import { setSessionCookie } from "@/server/session";
+import { userRepository } from "@/server/users";
 
-export async function createDemoAccountAction() {
-  await createOrResetDemoAccount();
-  redirect("/billing");
+export async function loginDemoAction() {
+  const demoUser = await userRepository().findDemoUser();
+  if (demoUser) {
+    await setSessionCookie(demoUser.id);
+  } else {
+    await createOrResetDemoAccount();
+  }
+  redirect("/dashboard");
 }
 
 export async function resetDemoAction() {

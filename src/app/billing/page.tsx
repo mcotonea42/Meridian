@@ -1,54 +1,59 @@
-import { createDemoAccountAction, resetDemoAction } from "@/app/actions";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { resetDemoAction } from "@/app/actions";
 import { env } from "@/env";
 import { loadBillingSummary } from "@/server/billing";
 import { reconcileLatestCancellation } from "@/server/cyccle";
 import { currentUserId } from "@/server/session";
 import { userRepository } from "@/server/users";
+import { AppShell } from "@/app/components/app-shell";
 
 export const dynamic = "force-dynamic";
 
 export default async function BillingPage() {
   const userId = await currentUserId();
   const user = userId ? await userRepository().findById(userId) : null;
-  if (user) await reconcileLatestCancellation(user);
-  const billing = user ? await loadBillingSummary(user) : null;
+  if (!user) redirect("/login");
+  await reconcileLatestCancellation(user);
+  const billing = await loadBillingSummary(user);
 
-  if (!user || !billing) {
+  if (!billing) {
     return (
-      <main className="shell">
-        <header className="topbar">
-          <div className="brand">Meridian</div>
-        </header>
-        <section className="panel stack">
-          <p className="kicker">No active Meridian session</p>
+      <AppShell activeTab="billing" userEmail={user.email}>
+        <section className="page-heading">
+          <p className="eyebrow">Workspace</p>
           <h1>Billing</h1>
-          <p>Create the demo account to provision Stripe Test billing data.</p>
-          <form action={createDemoAccountAction}>
-            <button type="submit">Create demo account</button>
-          </form>
         </section>
-      </main>
+        <section className="surface empty-state">
+          <p>No subscription is linked to this demo account.</p>
+          <Link href="/dashboard">Return to dashboard</Link>
+        </section>
+      </AppShell>
     );
   }
   const demoResetEnabled = env().MERIDIAN_DEMO_RESET_ENABLED;
 
   return (
-    <main className="shell">
-      <header className="topbar">
+    <AppShell activeTab="billing" userEmail={user.email}>
+      <section className="page-heading page-heading-with-action">
         <div>
-          <div className="brand">Meridian</div>
-          <p className="kicker">{user.email}</p>
+          <p className="eyebrow">Workspace</p>
+          <h1>Billing</h1>
         </div>
         {demoResetEnabled ? (
           <form action={resetDemoAction}>
-            <button className="secondary" type="submit">Reset demo</button>
+            <button className="button button-quiet" type="submit">Reset demo</button>
           </form>
         ) : null}
-      </header>
-      <section className="panel stack">
-        <p className="kicker">Billing</p>
-        <h1>{billing.planName}</h1>
-        <span className="status">{headlineStatus(billing)}</span>
+      </section>
+      <section className="surface billing-panel">
+        <div className="billing-title">
+          <div>
+            <p className="eyebrow">Current subscription</p>
+            <h2>{billing.planName}</h2>
+          </div>
+          <span className="status">{headlineStatus(billing)}</span>
+        </div>
         <dl className="details">
           <div>
             <dt>Status</dt>
@@ -80,10 +85,10 @@ export default async function BillingPage() {
           </div>
         </dl>
         <form action="/api/billing/cancel" method="post">
-          <button className="danger" type="submit">Cancel subscription</button>
+          <button className="button button-danger" type="submit">Cancel subscription</button>
         </form>
       </section>
-    </main>
+    </AppShell>
   );
 }
 

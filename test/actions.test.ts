@@ -3,6 +3,8 @@ import { resetEnvCacheForTests } from "@/env";
 
 const mocks = vi.hoisted(() => ({
   provisionDemoAccount: vi.fn(),
+  findDemoUser: vi.fn(),
+  setSessionCookie: vi.fn(),
   redirect: vi.fn(),
 }));
 
@@ -10,11 +12,45 @@ vi.mock("@/server/provisioning", () => ({
   createOrResetDemoAccount: mocks.provisionDemoAccount,
 }));
 
+vi.mock("@/server/users", () => ({
+  userRepository: () => ({ findDemoUser: mocks.findDemoUser }),
+}));
+
+vi.mock("@/server/session", () => ({
+  setSessionCookie: mocks.setSessionCookie,
+}));
+
 vi.mock("next/navigation", () => ({
   redirect: mocks.redirect,
 }));
 
-import { resetDemoAction } from "@/app/actions";
+import { loginDemoAction, resetDemoAction } from "@/app/actions";
+
+describe("loginDemoAction", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("reuses the existing demo user without reprovisioning Stripe", async () => {
+    mocks.findDemoUser.mockResolvedValue({ id: "usr_demo" });
+
+    await loginDemoAction();
+
+    expect(mocks.setSessionCookie).toHaveBeenCalledWith("usr_demo");
+    expect(mocks.provisionDemoAccount).not.toHaveBeenCalled();
+    expect(mocks.redirect).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("provisions once when no demo user exists", async () => {
+    mocks.findDemoUser.mockResolvedValue(null);
+
+    await loginDemoAction();
+
+    expect(mocks.provisionDemoAccount).toHaveBeenCalledOnce();
+    expect(mocks.setSessionCookie).not.toHaveBeenCalled();
+    expect(mocks.redirect).toHaveBeenCalledWith("/dashboard");
+  });
+});
 
 describe("resetDemoAction", () => {
   beforeEach(() => {
