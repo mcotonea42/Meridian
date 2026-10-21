@@ -5,6 +5,10 @@ import { stripeClient } from "@/server/stripe";
 
 export interface BillingSummary {
   planName: string;
+  currentPriceAmount: number | null;
+  currentPriceCurrency: string | null;
+  billingInterval: string | null;
+  billingIntervalCount: number | null;
   status: string;
   renewsOn: string | null;
   accessUntil: string | null;
@@ -23,13 +27,18 @@ export async function loadBillingSummary(
   const subscription = await stripe.subscriptions.retrieve(user.stripeSubscriptionId);
   const scheduleId = typeof subscription.schedule === "string" ? subscription.schedule : subscription.schedule?.id ?? null;
   const schedule = scheduleId ? await stripe.subscriptionSchedules.retrieve(scheduleId) : null;
-  const currentPriceId = subscription.items.data[0]?.price.id ?? null;
+  const currentPrice = subscription.items.data[0]?.price ?? null;
+  const currentPriceId = currentPrice?.id ?? null;
   const scheduled = schedule ? scheduledPlan(schedule, currentPriceId) : null;
   const currentPeriodEnd = timestampToIso(currentPeriodEndFromItems(subscription));
   const cancelAt = timestampToIso(subscription.cancel_at ?? null);
 
   return {
     planName: planName(currentPriceId),
+    currentPriceAmount: currentPrice?.unit_amount ?? null,
+    currentPriceCurrency: currentPrice?.currency ?? null,
+    billingInterval: currentPrice?.recurring?.interval ?? null,
+    billingIntervalCount: currentPrice?.recurring?.interval_count ?? null,
     status: subscription.status,
     renewsOn: subscription.cancel_at_period_end ? null : currentPeriodEnd,
     accessUntil: cancelAt ?? (subscription.cancel_at_period_end ? currentPeriodEnd : null),
@@ -60,8 +69,8 @@ function scheduledPlan(
 }
 
 export function planName(priceId: string | null): string {
-  if (priceId === env().STRIPE_PRO_PRICE_ID) return "Meridian Pro";
-  if (priceId === env().STRIPE_STARTER_PRICE_ID) return "Meridian Starter";
+  if (priceId === env().STRIPE_PRO_PRICE_ID) return "Mailflow Pro";
+  if (priceId === env().STRIPE_STARTER_PRICE_ID) return "Mailflow Starter";
   return "Unknown plan";
 }
 

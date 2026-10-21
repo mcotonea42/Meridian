@@ -24,7 +24,10 @@ describe("Billing summary", () => {
           cancel_at_period_end: true,
           cancel_at: null,
           schedule: null,
-          items: { data: [{ current_period_end: 1_800_000_000, price: { id: "price_pro" } }] },
+          items: { data: [{
+            current_period_end: 1_800_000_000,
+            price: { id: "price_pro", unit_amount: 4900, currency: "eur", recurring: { interval: "month", interval_count: 1 } },
+          }] },
         })),
       },
       subscriptionSchedules: {
@@ -33,10 +36,14 @@ describe("Billing summary", () => {
     } as never);
 
     expect(billing).toMatchObject({
-      planName: "Meridian Pro",
+      planName: "Mailflow Pro",
       status: "active",
       cancellationScheduled: true,
       accessUntil: "2027-01-15T08:00:00.000Z",
+      currentPriceAmount: 4900,
+      currentPriceCurrency: "eur",
+      billingInterval: "month",
+      billingIntervalCount: 1,
     });
   });
 
@@ -49,7 +56,10 @@ describe("Billing summary", () => {
           cancel_at_period_end: false,
           cancel_at: null,
           schedule: "sub_sched_123",
-          items: { data: [{ current_period_end: 1_800_000_000, price: { id: "price_pro" } }] },
+          items: { data: [{
+            current_period_end: 1_800_000_000,
+            price: { id: "price_pro", unit_amount: 4900, currency: "eur", recurring: { interval: "month", interval_count: 1 } },
+          }] },
         })),
       },
       subscriptionSchedules: {
@@ -64,7 +74,8 @@ describe("Billing summary", () => {
     } as never);
 
     expect(billing).toMatchObject({
-      scheduledDowngradePlan: "Meridian Starter",
+      planName: "Mailflow Pro",
+      scheduledDowngradePlan: "Mailflow Starter",
       scheduledChangeDate: "2030-03-17T17:46:40.000Z",
     });
   });
